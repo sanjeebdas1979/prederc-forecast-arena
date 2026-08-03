@@ -634,16 +634,27 @@ export default function PredictionPanel() {
             </p>
 
             {transactionHash && (
-              <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-black/10 px-2.5 py-2">
-                <p className="text-[9px] text-gray-500">
-                  Transaction
-                </p>
+  <div className="mt-2 rounded-lg border border-white/10 bg-black/10 p-2.5">
+    <div className="flex items-center justify-between gap-2">
+      <p className="text-[9px] text-gray-500">
+        Arc Testnet transaction
+      </p>
 
-                <p className="font-mono text-[9px] text-gray-300">
-                  {shortenHash(transactionHash)}
-                </p>
-              </div>
-            )}
+      <p className="font-mono text-[9px] text-gray-300">
+        {shortenHash(transactionHash)}
+      </p>
+    </div>
+
+    <a
+      href={`https://testnet.arcscan.app/tx/${transactionHash}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-2 flex w-full items-center justify-center rounded-lg border border-blue-500/30 bg-blue-500/[0.08] px-3 py-2 text-[10px] font-bold text-blue-300 transition hover:border-blue-400/50 hover:bg-blue-500/[0.14] hover:text-blue-200"
+    >
+      View on Arc Explorer ↗
+    </a>
+  </div>
+)}
 
             {isSuccessfulSubmission &&
               submittedDirection &&
