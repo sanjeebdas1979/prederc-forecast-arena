@@ -4,9 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
-  useState,
   type ReactNode,
 } from "react";
 
@@ -16,6 +14,7 @@ import { arcTestnet } from "viem/chains";
 type VerificationContextValue = {
   isVerified: boolean;
   setVerified: (value: boolean) => void;
+  clearVerification: () => void;
 };
 
 type VerificationProviderProps = {
@@ -28,40 +27,44 @@ const VerificationContext =
 export function VerificationProvider({
   children,
 }: VerificationProviderProps) {
-  const { address, chainId, isConnected } = useAccount();
+  const {
+    address,
+    chainId,
+    isConnected,
+  } = useAccount();
 
-  const [isVerified, setIsVerified] = useState(false);
-
-  /*
-   * Wallet disconnect, wallet address change অথবা
-   * Arc Testnet থেকে অন্য network-এ গেলে verification reset হবে।
-   */
-  useEffect(() => {
-    setIsVerified(false);
-  }, [address, chainId, isConnected]);
+  const isVerified =
+    isConnected &&
+    Boolean(address) &&
+    chainId === arcTestnet.id;
 
   const setVerified = useCallback(
-    (value: boolean): void => {
-      if (
-        !isConnected ||
-        !address ||
-        chainId !== arcTestnet.id
-      ) {
-        setIsVerified(false);
-        return;
-      }
-
-      setIsVerified(value);
+    (_value: boolean): void => {
+      // Verification is derived automatically from
+      // wallet connection and Arc Testnet network.
     },
-    [address, chainId, isConnected]
+    []
+  );
+
+  const clearVerification = useCallback(
+    (): void => {
+      // Disconnecting or switching networks automatically
+      // removes verification.
+    },
+    []
   );
 
   const value = useMemo(
     () => ({
       isVerified,
       setVerified,
+      clearVerification,
     }),
-    [isVerified, setVerified]
+    [
+      isVerified,
+      setVerified,
+      clearVerification,
+    ]
   );
 
   return (
@@ -72,7 +75,9 @@ export function VerificationProvider({
 }
 
 export function useVerification(): VerificationContextValue {
-  const context = useContext(VerificationContext);
+  const context = useContext(
+    VerificationContext
+  );
 
   if (!context) {
     throw new Error(

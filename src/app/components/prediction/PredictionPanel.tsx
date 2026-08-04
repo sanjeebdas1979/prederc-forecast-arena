@@ -8,9 +8,9 @@ import {
 import { arcTestnet } from "viem/chains";
 
 import {
-  FORECAST_REGISTRY_ABI,
-  FORECAST_REGISTRY_ADDRESS,
-} from "../../contracts/forecastRegistry";
+  FORECAST_REGISTRY_V2_ABI,
+  FORECAST_REGISTRY_V2_ADDRESS,
+} from "../../contracts/forecastRegistryV2";
 
 import { useDemoPoints } from "../providers/DemoPointsProvider";
 import { useVerification } from "../providers/VerificationProvider";
@@ -280,8 +280,8 @@ export default function PredictionPanel() {
         direction === "higher" ? 0 : 1;
 
       const hash = await writeContractAsync({
-        address: FORECAST_REGISTRY_ADDRESS,
-        abi: FORECAST_REGISTRY_ABI,
+        address: FORECAST_REGISTRY_V2_ADDRESS,
+        abi: FORECAST_REGISTRY_V2_ABI,
         functionName: "submitForecast",
         args: [
           onchainForecastId,
@@ -322,11 +322,15 @@ export default function PredictionPanel() {
       }
 
       addPrediction(
-        roundNumber,
-        direction,
-        stake,
-        roundDuration
-      );
+  roundNumber,
+  direction,
+  stake,
+  roundDuration,
+  {
+    forecastId: onchainForecastId,
+    transactionHash: hash,
+  }
+);
 
       setSubmittedDirection(direction);
       setSubmittedStake(stake);
