@@ -6,12 +6,18 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 
 export type PredictionDirection = "higher" | "lower";
-export type PredictionStatus = "pending" | "won" | "lost";
+
+export type PredictionStatus =
+  | "pending"
+  | "won"
+  | "lost";
+
 export type PredictionDuration = 60 | 300 | 900;
 
 export type PredictionOnchainStatus =
@@ -41,6 +47,7 @@ export type PredictionRecord = {
   priceDifference: number | null;
 
   forecastId: string | null;
+
   transactionHash: `0x${string}` | null;
   resolveTransactionHash: `0x${string}` | null;
   claimTransactionHash: `0x${string}` | null;
@@ -141,6 +148,33 @@ function normalizeHash(
   return null;
 }
 
+function normalizeStatus(
+  status: unknown
+): PredictionStatus {
+  if (
+    status === "pending" ||
+    status === "won" ||
+    status === "lost"
+  ) {
+    return status;
+  }
+
+  return "pending";
+}
+
+function normalizeResult(
+  result: unknown
+): PredictionDirection | null {
+  if (
+    result === "higher" ||
+    result === "lower"
+  ) {
+    return result;
+  }
+
+  return null;
+}
+
 function normalizeOnchainStatus(
   value: unknown,
   status: PredictionStatus,
@@ -154,7 +188,7 @@ function normalizeOnchainStatus(
   if (
     status === "won" &&
     (
-      resolveTransactionHash ||
+      resolveTransactionHash !== null ||
       value === "claimable"
     )
   ) {
@@ -196,18 +230,14 @@ function normalizePrediction(
     return null;
   }
 
-  const status: PredictionStatus =
-    prediction.status === "won" ||
-    prediction.status === "lost" ||
-    prediction.status === "pending"
-      ? prediction.status
-      : "pending";
+  const direction: PredictionDirection =
+    prediction.direction;
 
-  const result: PredictionDirection | null =
-    prediction.result === "higher" ||
-    prediction.result === "lower"
-      ? prediction.result
-      : null;
+  const status =
+    normalizeStatus(prediction.status);
+
+  const result =
+    normalizeResult(prediction.result);
 
   const reward =
     typeof prediction.reward === "number" &&
@@ -234,10 +264,11 @@ function normalizePrediction(
   return {
     id: prediction.id,
     roundNumber: prediction.roundNumber,
-    direction: prediction.direction,
-    duration: normalizeDuration(
-      prediction.duration
-    ),
+    direction,
+
+    duration:
+      normalizeDuration(prediction.duration),
+
     points: prediction.points,
 
     submittedAt:
@@ -303,12 +334,39 @@ export function DemoPointsProvider({
   const [balance, setBalance] =
     useState(STARTING_POINTS);
 
-  const [predictions, setPredictions] = useState<
-    PredictionRecord[]
-  >([]);
+  const [predictions, setPredictions] =
+    useState<PredictionRecord[]>([]);
 
   const [hasLoadedStorage, setHasLoadedStorage] =
     useState(false);
+
+  const balanceRef =
+    useRef(STARTING_POINTS);
+
+  const predictionsRef =
+    useRef<PredictionRecord[]>([]);
+
+  const updateBalance = useCallback(
+    (nextBalance: number): void => {
+      balanceRef.current = nextBalance;
+      setBalance(nextBalance);
+    },
+    []
+  );
+
+  const updatePredictions = useCallback(
+    (
+      nextPredictions: PredictionRecord[]
+    ): void => {
+      predictionsRef.current =
+        nextPredictions;
+
+      setPredictions(
+        nextPredictions
+      );
+    },
+    []
+  );
 
   useEffect(() => {
     try {
@@ -317,30 +375,45 @@ export function DemoPointsProvider({
           STORAGE_KEY
         );
 
-      if (savedData) {
-        const parsedData =
-          JSON.parse(
-            savedData
-          ) as SavedDemoData;
-
-        if (
-          Number.isFinite(parsedData.balance) &&
-          Array.isArray(parsedData.predictions)
-        ) {
-          const normalizedPredictions =
-            parsedData.predictions
-              .map(normalizePrediction)
-              .filter(
-                (
-                  prediction
-                ): prediction is PredictionRecord =>
-                  prediction !== null
-              );
-
-          setBalance(parsedData.balance);
-          setPredictions(normalizedPredictions);
-        }
+      if (!savedData) {
+        return;
       }
+
+      const parsedData =
+        JSON.parse(
+          savedData
+        ) as SavedDemoData;
+
+      if (
+        !Number.isFinite(parsedData.balance) ||
+        !Array.isArray(parsedData.predictions)
+      ) {
+        return;
+      }
+
+      const normalizedPredictions =
+        parsedData.predictions
+          .map(normalizePrediction)
+          .filter(
+            (
+              prediction
+            ): prediction is PredictionRecord =>
+              prediction !== null
+          );
+
+      balanceRef.current =
+        parsedData.balance;
+
+      predictionsRef.current =
+        normalizedPredictions;
+
+      setBalance(
+        parsedData.balance
+      );
+
+      setPredictions(
+        normalizedPredictions
+      );
     } catch (error) {
       console.error(
         "Could not load Arena data:",
@@ -356,13 +429,15 @@ export function DemoPointsProvider({
       return;
     }
 
+    const savedData: SavedDemoData = {
+      balance,
+      predictions,
+    };
+
     try {
       window.localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({
-          balance,
-          predictions,
-        })
+        JSON.stringify(savedData)
       );
     } catch (error) {
       console.error(
@@ -378,22 +453,24 @@ export function DemoPointsProvider({
 
   const spendPoints = useCallback(
     (amount: number): boolean => {
+      const currentBalance =
+        balanceRef.current;
+
       if (
         !Number.isFinite(amount) ||
         amount <= 0 ||
-        amount > balance
+        amount > currentBalance
       ) {
         return false;
       }
 
-      setBalance(
-        (currentBalance) =>
-          currentBalance - amount
+      updateBalance(
+        currentBalance - amount
       );
 
       return true;
     },
-    [balance]
+    [updateBalance]
   );
 
   const addPrediction = useCallback(
@@ -404,7 +481,8 @@ export function DemoPointsProvider({
       duration: PredictionDuration,
       onchainData?: AddPredictionOnchainData
     ): number => {
-      const predictionId = Date.now();
+      const predictionId =
+        Date.now();
 
       const transactionHash =
         onchainData?.transactionHash ?? null;
@@ -417,11 +495,14 @@ export function DemoPointsProvider({
         points,
 
         submittedAt:
-          new Date().toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-          }),
+          new Date().toLocaleTimeString(
+            [],
+            {
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            }
+          ),
 
         status: "pending",
         result: null,
@@ -443,21 +524,20 @@ export function DemoPointsProvider({
         resolveTransactionHash: null,
         claimTransactionHash: null,
 
-        onchainStatus: transactionHash
-          ? "submitted"
-          : "local",
+        onchainStatus:
+          transactionHash
+            ? "submitted"
+            : "local",
       };
 
-      setPredictions(
-        (currentPredictions) => [
-          newPrediction,
-          ...currentPredictions,
-        ]
-      );
+      updatePredictions([
+        newPrediction,
+        ...predictionsRef.current,
+      ]);
 
       return predictionId;
     },
-    []
+    [updatePredictions]
   );
 
   const settleRound = useCallback(
@@ -477,169 +557,249 @@ export function DemoPointsProvider({
       const priceDifference =
         endPrice - startPrice;
 
-      setPredictions(
-        (currentPredictions) =>
-          currentPredictions.map(
-            (prediction) => {
-              if (
-                prediction.roundNumber !==
-                  roundNumber ||
-                prediction.status !== "pending"
-              ) {
-                return prediction;
-              }
+      const nextPredictions: PredictionRecord[] =
+        predictionsRef.current.map(
+          (
+            prediction
+          ): PredictionRecord => {
+            if (
+              prediction.roundNumber !==
+                roundNumber ||
+              prediction.status !== "pending"
+            ) {
+              return prediction;
+            }
 
-              const didWin =
-                prediction.direction === result;
+            const didWin =
+              prediction.direction === result;
 
-              const reward = didWin
+            const reward =
+              didWin
                 ? prediction.points * 2
                 : 0;
 
-              return {
-                ...prediction,
-
-                status: didWin
+            const nextStatus:
+              PredictionStatus =
+                didWin
                   ? "won"
-                  : "lost",
+                  : "lost";
 
-                result,
-                reward,
-                claimableReward: reward,
-                claimed: false,
-
-                startPrice,
-                endPrice,
-                priceDifference,
-
-                onchainStatus: didWin
+            const nextOnchainStatus:
+              PredictionOnchainStatus =
+                didWin
                   ? "submitted"
-                  : "resolved",
-              };
-            }
-          )
+                  : "resolved";
+
+            return {
+              ...prediction,
+
+              status: nextStatus,
+              result,
+
+              reward,
+              claimableReward: reward,
+              claimed: false,
+
+              startPrice,
+              endPrice,
+              priceDifference,
+
+              onchainStatus:
+                nextOnchainStatus,
+            };
+          }
+        );
+
+      updatePredictions(
+        nextPredictions
       );
     },
-    []
+    [updatePredictions]
   );
 
-  const setResolveTransaction = useCallback(
-    (
-      predictionId: number,
-      transactionHash: `0x${string}`
-    ): void => {
-      setPredictions(
-        (currentPredictions) =>
-          currentPredictions.map(
-            (prediction) =>
-              prediction.id === predictionId
-                ? {
-                    ...prediction,
-                    resolveTransactionHash:
-                      transactionHash,
-                    onchainStatus:
-                      prediction.status === "won"
-                        ? "claimable"
-                        : "resolved",
-                  }
-                : prediction
-          )
-      );
-    },
-    []
-  );
-
-  const markResolvedOnchain = useCallback(
-    (predictionId: number): void => {
-      setPredictions(
-        (currentPredictions) =>
-          currentPredictions.map(
-            (prediction) =>
-              prediction.id === predictionId
-                ? {
-                    ...prediction,
-                    onchainStatus:
-                      prediction.status === "won"
-                        ? "claimable"
-                        : "resolved",
-                  }
-                : prediction
-          )
-      );
-    },
-    []
-  );
-
-  const syncClaimedReward = useCallback(
-    (
-      predictionId: number,
-      transactionHash?: `0x${string}`
-    ): boolean => {
-      let rewardToAdd = 0;
-      let didUpdate = false;
-
-      setPredictions(
-        (currentPredictions) =>
-          currentPredictions.map(
-            (prediction) => {
+  const setResolveTransaction =
+    useCallback(
+      (
+        predictionId: number,
+        transactionHash: `0x${string}`
+      ): void => {
+        const nextPredictions: PredictionRecord[] =
+          predictionsRef.current.map(
+            (
+              prediction
+            ): PredictionRecord => {
               if (
-                prediction.id !== predictionId ||
-                prediction.status !== "won" ||
-                prediction.claimed
+                prediction.id !==
+                predictionId
               ) {
                 return prediction;
               }
 
-              rewardToAdd =
-                prediction.claimableReward > 0
-                  ? prediction.claimableReward
-                  : prediction.reward;
-
-              if (rewardToAdd <= 0) {
-                return prediction;
-              }
-
-              didUpdate = true;
+              const nextOnchainStatus:
+                PredictionOnchainStatus =
+                  prediction.status === "won"
+                    ? "claimable"
+                    : "resolved";
 
               return {
                 ...prediction,
+
+                resolveTransactionHash:
+                  transactionHash,
+
+                onchainStatus:
+                  nextOnchainStatus,
+              };
+            }
+          );
+
+        updatePredictions(
+          nextPredictions
+        );
+      },
+      [updatePredictions]
+    );
+
+  const markResolvedOnchain =
+    useCallback(
+      (
+        predictionId: number
+      ): void => {
+        const nextPredictions: PredictionRecord[] =
+          predictionsRef.current.map(
+            (
+              prediction
+            ): PredictionRecord => {
+              if (
+                prediction.id !==
+                predictionId
+              ) {
+                return prediction;
+              }
+
+              const nextOnchainStatus:
+                PredictionOnchainStatus =
+                  prediction.status === "won"
+                    ? "claimable"
+                    : "resolved";
+
+              return {
+                ...prediction,
+
+                onchainStatus:
+                  nextOnchainStatus,
+              };
+            }
+          );
+
+        updatePredictions(
+          nextPredictions
+        );
+      },
+      [updatePredictions]
+    );
+
+  const syncClaimedReward =
+    useCallback(
+      (
+        predictionId: number,
+        transactionHash?: `0x${string}`
+      ): boolean => {
+        const targetPrediction =
+          predictionsRef.current.find(
+            (prediction) =>
+              prediction.id ===
+              predictionId
+          );
+
+        if (
+          !targetPrediction ||
+          targetPrediction.status !== "won" ||
+          targetPrediction.claimed
+        ) {
+          return false;
+        }
+
+        const rewardToAdd =
+          targetPrediction.claimableReward > 0
+            ? targetPrediction.claimableReward
+            : targetPrediction.reward;
+
+        if (
+          !Number.isFinite(rewardToAdd) ||
+          rewardToAdd <= 0
+        ) {
+          return false;
+        }
+
+        const nextPredictions: PredictionRecord[] =
+          predictionsRef.current.map(
+            (
+              prediction
+            ): PredictionRecord => {
+              if (
+                prediction.id !==
+                predictionId
+              ) {
+                return prediction;
+              }
+
+              return {
+                ...prediction,
+
                 claimed: true,
                 claimableReward: 0,
+
                 claimTransactionHash:
                   transactionHash ??
                   prediction.claimTransactionHash,
-                onchainStatus: "claimed",
+
+                onchainStatus:
+                  "claimed",
               };
             }
-          )
-      );
+          );
 
-      if (
-        didUpdate &&
-        rewardToAdd > 0
-      ) {
-        setBalance(
-          (currentBalance) =>
-            currentBalance + rewardToAdd
+        const nextBalance =
+          balanceRef.current +
+          rewardToAdd;
+
+        /*
+         * Refs update first so another automatic
+         * sync cannot add the same reward twice.
+         */
+        predictionsRef.current =
+          nextPredictions;
+
+        balanceRef.current =
+          nextBalance;
+
+        setPredictions(
+          nextPredictions
         );
-      }
 
-      return didUpdate;
-    },
-    []
-  );
+        setBalance(
+          nextBalance
+        );
 
-  const claimRewardLocally = useCallback(
-    (
-      predictionId: number,
-      transactionHash: `0x${string}`
-    ): boolean =>
-      syncClaimedReward(
-        predictionId,
-        transactionHash
-      ),
-    [syncClaimedReward]
-  );
+        return true;
+      },
+      []
+    );
+
+  const claimRewardLocally =
+    useCallback(
+      (
+        predictionId: number,
+        transactionHash: `0x${string}`
+      ): boolean => {
+        return syncClaimedReward(
+          predictionId,
+          transactionHash
+        );
+      },
+      [syncClaimedReward]
+    );
 
   const addPoints = useCallback(
     (amount: number): void => {
@@ -650,78 +810,92 @@ export function DemoPointsProvider({
         return;
       }
 
-      setBalance(
-        (currentBalance) =>
-          currentBalance + amount
+      updateBalance(
+        balanceRef.current + amount
       );
     },
-    []
+    [updateBalance]
   );
 
-  const resetPoints = useCallback((): void => {
-    setBalance(STARTING_POINTS);
-    setPredictions([]);
+  const resetPoints =
+    useCallback((): void => {
+      balanceRef.current =
+        STARTING_POINTS;
 
-    try {
-      window.localStorage.removeItem(
-        STORAGE_KEY
+      predictionsRef.current =
+        [];
+
+      setBalance(
+        STARTING_POINTS
       );
-    } catch (error) {
-      console.error(
-        "Could not clear Arena data:",
-        error
-      );
-    }
-  }, []);
 
-  const value = useMemo(
-    () => ({
-      balance,
-      predictions,
+      setPredictions([]);
 
-      spendPoints,
-      addPrediction,
-      settleRound,
+      try {
+        window.localStorage.removeItem(
+          STORAGE_KEY
+        );
+      } catch (error) {
+        console.error(
+          "Could not clear Arena data:",
+          error
+        );
+      }
+    }, []);
 
-      setResolveTransaction,
-      markResolvedOnchain,
+  const value =
+    useMemo<DemoPointsContextValue>(
+      () => ({
+        balance,
+        predictions,
 
-      syncClaimedReward,
-      claimRewardLocally,
+        spendPoints,
+        addPrediction,
+        settleRound,
 
-      addPoints,
-      resetPoints,
-    }),
-    [
-      balance,
-      predictions,
+        setResolveTransaction,
+        markResolvedOnchain,
 
-      spendPoints,
-      addPrediction,
-      settleRound,
+        syncClaimedReward,
+        claimRewardLocally,
 
-      setResolveTransaction,
-      markResolvedOnchain,
+        addPoints,
+        resetPoints,
+      }),
+      [
+        balance,
+        predictions,
 
-      syncClaimedReward,
-      claimRewardLocally,
+        spendPoints,
+        addPrediction,
+        settleRound,
 
-      addPoints,
-      resetPoints,
-    ]
-  );
+        setResolveTransaction,
+        markResolvedOnchain,
+
+        syncClaimedReward,
+        claimRewardLocally,
+
+        addPoints,
+        resetPoints,
+      ]
+    );
 
   return (
-    <DemoPointsContext.Provider value={value}>
+    <DemoPointsContext.Provider
+      value={value}
+    >
       {children}
     </DemoPointsContext.Provider>
   );
 }
 
-export function useDemoPoints(): DemoPointsContextValue {
-  const context = useContext(
-    DemoPointsContext
-  );
+export function useDemoPoints():
+  DemoPointsContextValue {
+  const context =
+    useContext(
+      DemoPointsContext
+    );
 
   if (!context) {
     throw new Error(

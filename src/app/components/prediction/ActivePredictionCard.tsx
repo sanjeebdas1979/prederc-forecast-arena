@@ -355,7 +355,7 @@ export default function ActivePredictionCard() {
         );
       }
 
-      claimRewardLocally(
+      setResolveTransaction(
   activePrediction.id,
   hash
 );
